@@ -1,9 +1,75 @@
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import matplotlib.image as img
 from metrics import dice, jaccard
 from matplotlib import cm
 import numpy as np
 from collections import Counter
+
+
+class DrawEEG:
+    def __init__(self, img_source=None):
+        self.sens = ['Fp1', 'Fp2', 'F7', 'F3', 'Fz', 'F4', 'F8', 'T3', 'C3', 'Cz', 'C4',
+                     'T4', 'T5', 'P3', 'Pz', 'P4', 'T6', 'O1', 'O2']
+        self.number_of_channles = len(self.sens)
+        if img_source is None:
+            self.img = img.imread('21ch_eeg.png')
+        else:
+            self.img = img.imread(img_source)
+        self.el_centers_dict = {"Cz": (197, 181), "C3": (134, 181),
+                                "C4": (261, 181), "T3": (70, 181), "T4": (324, 181),
+                                "Fz": (197, 117), "F3": (146, 116), "F4": (250, 116),
+                                "F7": (95, 107), "F8": (300, 107), "Fp1": (156, 61),
+                                "Fp2": (239, 61), "O1": (157, 301),
+                                "O2": (238, 301), "Pz": (197, 245),
+                                "P3": (146, 245), "P4": (250, 245), "T5": (95, 255),
+                                "T6": (300, 255)}
+        self.bands = ['delta', 'theta', 'alpha1', 'alpha2', 'beta1', 'beta2', 'gamma']
+        self.ax = None
+
+    def draw_edges(self, pair_names, values_color=None, values_width=None,
+                   normalize_values=True, normalize_width=False, cmap=cm.cool, title="Hey, hey!", ax=None):
+
+        """ draw edges
+        Args:
+            pair_names (list of string): list of string in format 'cn1/cn2' ('F3/C3')
+            values_color (array of floats): value from 0 to 1
+            values_width (array of floats): should be positive value near 1
+        """
+        if ax is None:
+            self.fig, self.ax = plt.subplots(nrows=1, ncols=1, figsize=(5, 5))
+        else:
+            self.ax = ax
+            self.fig = ax.get_figure()
+        if len(pair_names) == 0:
+            self.ax.imshow(self.img);
+            self.ax.set_title(title)
+            self.ax.axis('off');
+            return None
+
+        chan_pairs = [el.split('/') for el in list(pair_names)]
+        if values_color is None:
+            values_color = 0.9 * np.ones(len(pair_names))
+        if values_width is None:
+            values_width = 0.9 * np.ones(len(pair_names))
+        if normalize_values:
+            max_ = np.max(values_color)
+            min_ = np.min(values_color)
+            if max_ > min_:
+                values_color = (values_color - min_) / (max_ - min_)
+        if normalize_width:
+            abs_max_ = np.max(np.abs(values_width))
+            values_width = np.abs(values_width) / abs_max_
+
+        for idx in range(len(chan_pairs)):
+            chan_pair = chan_pairs[idx]
+            els = np.array([self.el_centers_dict[chan_pair[0]], self.el_centers_dict[chan_pair[1]]])
+            col = cmap(values_color[idx])
+
+            self.ax.plot(els[:, 0], els[:, 1], color=col, alpha=1, linewidth=4 * values_width[idx]);
+        self.ax.imshow(self.img);
+        self.ax.set_title(title)
+        self.ax.axis('off');
 
 
 class EEGPairedPermutationAnalyser:
@@ -61,7 +127,7 @@ class EEGPairedPermutationAnalyser:
         plt.legend()
 
     def bootstrap_significant_channels(self, band=1,
-                             plot=True, num_btsp=1000, conf_levels=[5, 95]):
+                                       plot=True, num_btsp=1000, conf_levels=[5, 95]):
 
         (emp_mean_diffs, p_val), perm_mean_diffs = self.perm_difference_paired(band=band)
 
@@ -111,6 +177,29 @@ class EEGPairedPermutationAnalyser:
         p_val = np.mean(np.abs(perm_mean_diffs) > np.abs(emp_mean_diffs), axis=0)
         return (emp_mean_diffs, p_val), perm_mean_diffs
 
+    def compute_sign_differences(self, idxs=None, size=70, band=1, num_perms=100, thres=0.001):
+        """ Compute significant differences
+
+        :param size: int, size of group if idxs not specified
+        :param idxs: list of ints, indexes of choosen subgroup
+        :param band: int, band code
+        :param num_reps: int, number of permutations
+        :return: tuple (channel list, p-val, value)
+        """
+        if idxs:
+            self.subgroup_ids = idxs
+        else:
+            self.get_subgroup(size=size)
+        self.num_perm = num_perms
+        self.thres = thres
+        (emp_mean_diffs, p_val), perm_mean_diffs = self.perm_difference_paired(band=band)
+        sign_channel_ids = np.where(p_val < self.thres)[0]
+        chan_names = self.channel_bivar[sign_channel_ids]
+        chan_diffs = emp_mean_diffs[sign_channel_ids]
+        chan_pvals = p_val[sign_channel_ids]
+
+        return {'chan_names': chan_names, "chan_diffs": chan_diffs, "chan_pvals": chan_pvals}
+
     def test_reproducability(self, size=70, band=1, num_reps=100):
         """ Function returned significant channels in each repetion
 
@@ -129,8 +218,6 @@ class EEGPairedPermutationAnalyser:
                 sign_channels_values = emp_stat[sign_channel_ids]
                 sign_channels.append(dict(zip(sign_channel_ids, sign_channels_values)))
         return sign_channels
-
-
 
     def pairwise_set_comparisons(self, size=70, band=1, num_reps=10, func=dice, type_='neigh'):
         """ Pairwise comparison significant channels sets received for each independent group in every repetion
@@ -177,11 +264,11 @@ class EEGPairedPermutationAnalyser:
         assert 0 < factor < 1, "Factor variable should be from 0 to 1"
         sign_tested = self.test_reproducability(size=size, band=band, num_reps=num_reps)
         cnt = Counter(np.hstack([list(els.keys()) for els in sign_tested]))
-        most_frequent = {x: count for x, count in cnt.items() if count >= num_reps*factor}
+        most_frequent = {x: count for x, count in cnt.items() if count >= num_reps * factor}
         if len(most_frequent) == 0:
             return {"channels": [], "frequency": [], "mean_diff": []}
         most_frequent_channels = list(self.channel_bivar[list(most_frequent.keys())])
-        most_frequent_freqs = np.array(list(most_frequent.values()))/num_reps
+        most_frequent_freqs = np.array(list(most_frequent.values())) / num_reps
         most_frequent_values = []
         for chan in most_frequent_channels:
             chan_id = list(self.channel_bivar).index(chan)
@@ -191,8 +278,6 @@ class EEGPairedPermutationAnalyser:
                     chan_values.append(chan_dict[chan_id])
             most_frequent_values.append(np.mean(chan_values))
 
-        chn_dict = {"channels": most_frequent_channels, "frequency": most_frequent_freqs, "mean_diff": most_frequent_values}
+        chn_dict = {"channels": most_frequent_channels, "frequency": most_frequent_freqs,
+                    "mean_diff": most_frequent_values}
         return chn_dict
-
-
-

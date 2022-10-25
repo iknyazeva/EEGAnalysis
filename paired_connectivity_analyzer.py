@@ -28,7 +28,7 @@ class DrawEEG:
         self.ax = None
 
     def draw_edges(self, pair_names, values_color=None, values_width=None,
-                   normalize_values=True, normalize_width=False, cmap=cm.cool, title="Hey, hey!", ax=None):
+                   normalize_values=True, normalize_width=False, vmin=-1, vmax=1, cmap=cm.cool, title="Hey, hey!", ax=None):
 
         """ draw edges
         Args:
@@ -53,8 +53,11 @@ class DrawEEG:
         if values_width is None:
             values_width = 0.9 * np.ones(len(pair_names))
         if normalize_values:
-            max_ = np.max(values_color)
-            min_ = np.min(values_color)
+            #max_ = np.max(values_color)
+            max_ = vmax
+            #min_ = np.min(values_color)
+            min_ = vmin
+
             if max_ > min_:
                 values_color = (values_color - min_) / (max_ - min_)
         if normalize_width:

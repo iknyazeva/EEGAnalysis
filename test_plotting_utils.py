@@ -63,3 +63,17 @@ class Test(TestCase):
         obj = plot_compute_sign_differences(size=70, band=[2, 3, 4], num_perms=100, thres=0.001,
                                             title=None, cmap=cm.gist_heat, figsize=(12, 4))
         self.assertTrue(True)
+
+    def test_plot_compute_sign_differences_list_band(self):
+        group_size = 30
+        obj = plot_compute_sign_differences(size=group_size, band=[1, 2, 3, 4, 5, 6, 7], num_perms=10000, thres=0.0003,
+                                            title=None, cmap=cm.PRGn, figsize=(18, 4))
+        self.assertTrue(True)
+
+    def test_plot_reproducibility_pattern(self):
+        group_size = 60
+        obj, pattern = plot_reproducibility_pattern(size=group_size, band=[1, 2, 3, 4, 5, 6, 7], num_perms=100,
+                                                    num_reps=10, factor=0.51,
+                                                    thres=0.001, cmap=cm.gist_heat, figsize=(18, 4))
+        self.assertTrue(True)
+

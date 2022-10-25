@@ -1,5 +1,6 @@
 from paired_connectivity_analyzer import EEGPairedPermutationAnalyser, DrawEEG
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import matplotlib
@@ -8,7 +9,7 @@ from metrics import dice, jaccard
 
 
 def plot_compute_sign_differences(idxs=None, size=70, band=1, num_perms=100, thres=0.001,
-                                  title=None, cmap=cm.cool, figsize=(18, 4)):
+                                  title=None, cmap=cm.cool, vmin=-1.5, vmax=1.5, figsize=(18, 4)):
     """
 
     :param thres:
@@ -28,7 +29,7 @@ def plot_compute_sign_differences(idxs=None, size=70, band=1, num_perms=100, thr
         dict_diffs = analyzer.compute_sign_differences(idxs=idxs, size=size,
                                                        band=band, num_perms=num_perms, thres=thres)
         draw_obj = draw_edges_by_dict(dict_diffs, band, keys=["chan_names", "chan_diffs", "chan_pvals"],
-                                      title=title, cmap=cmap)
+                                      title=title, cmap=cmap, vmin=vmin, vmax=vmax)
 
     elif isinstance(band, list):
         draw_obj = DrawEEG()
@@ -52,7 +53,7 @@ def plot_compute_sign_differences(idxs=None, size=70, band=1, num_perms=100, thr
 # TODO draw edges be reproducible patterns dict
 
 def plot_reproducibility_pattern(size=70, band=1, num_perms=100, num_reps=50, factor=0.4,
-                                 thres=0.001, cmap=cm.cool, figsize=(18, 4)):
+                                 thres=0.001, cmap=cm.cool,  vmin=-1.5, vmax=1.5, figsize=(18, 4)):
     df = pd.read_csv('eeg_dataframe_nansfilled.csv', index_col=0)
     analyzer = EEGPairedPermutationAnalyser(data_df=df, num_perm=num_perms, thres=thres)
     draw_obj = DrawEEG()
@@ -65,7 +66,7 @@ def plot_reproducibility_pattern(size=70, band=1, num_perms=100, num_reps=50, fa
         title = f"Reproducible pairs in \"open-close\" contrast for group size {size} \n Rythm: {draw_obj.bands[band]}, num_reps: {num_reps}, frequency threshold: {factor}"
 
         draw_obj = draw_edges_by_dict(dict_reproducible, 1, keys=["channels", "mean_diff", "frequency"],
-                                      cmap=cm.PRGn, title=title)
+                                      cmap=cm.PRGn, title=title, vmin=vmin, vmax=vmax)
         pattern.append(dict_reproducible)
 
     elif isinstance(band, list):
@@ -77,7 +78,7 @@ def plot_reproducibility_pattern(size=70, band=1, num_perms=100, num_reps=50, fa
             dict_reproducible = analyzer.compute_reproducible_pattern(size=size,
                                                                num_reps=num_reps, factor=factor, band=b)
             draw_obj = draw_edges_by_dict(dict_reproducible, b, keys=["channels", "mean_diff", "frequency"],
-                                      title=title_list[i], ax=axs[i], cmap=cmap)
+                                      title=title_list[i], ax=axs[i], cmap=cmap, vmin=vmin, vmax=vmax)
             pattern.append(dict_reproducible)
         draw_obj.fig.suptitle(
             f"Reproducible patterns in \"open-close\" contrast  for group size {size}\n num_reps: {num_reps}, frequency threshold: {factor}",
@@ -92,7 +93,7 @@ def plot_reproducibility_pattern(size=70, band=1, num_perms=100, num_reps=50, fa
 
 def draw_edges_by_dict(dict_diffs, band,
                        keys=["chan_names", "chan_diffs", "chan_pvals"],
-                       title=None, ax=None, cmap=cm.cool):
+                       title=None, vmin=-1.5, vmax=1.5, ax=None, cmap=cm.cool):
     """
 
     :param cmap: obj, matplotlib colormap
@@ -104,7 +105,7 @@ def draw_edges_by_dict(dict_diffs, band,
     """
     draw_obj = DrawEEG()
     pair_names = dict_diffs[keys[0]]
-    values_color = dict_diffs[keys[1]]
+    values_color = np.array(dict_diffs[keys[1]])
     if len(pair_names) > 0:
         if keys[2] == "chan_pvals":
             values_width = 1 - dict_diffs[keys[2]]
@@ -115,18 +116,21 @@ def draw_edges_by_dict(dict_diffs, band,
     if title is None:
         title = f"Significant differences \"open-close\" for {draw_obj.bands[band-1]}"
     draw_obj.draw_edges(pair_names=pair_names, values_color=values_color,
-                        values_width=values_width, title=title, ax=ax, cmap=cmap)
+                        values_width=values_width, normalize_values=True, vmin=vmin, vmax=vmax,
+                        title=title, ax=ax, cmap=cmap)
     divider = make_axes_locatable(draw_obj.ax)
     cax = divider.new_vertical(size="5%", pad=0.7, pack_start=True)
     draw_obj.fig.add_axes(cax)
 
     if len(pair_names) > 0:
 
-        cvalues = sorted([min(values_color)-0.01]+list(values_color)+[max(values_color)+0.01])
+        #cvalues = sorted([min(values_color)-0.01]+list(values_color)+[max(values_color)+0.01])
+        cvalues = list(np.linspace(vmin, vmax, 20))
         cbar = matplotlib.colorbar.ColorbarBase(ax=cax, cmap=cmap, values=cvalues,
                                             orientation="horizontal")
     else:
-        cbar = matplotlib.colorbar.ColorbarBase(ax=cax, cmap=cmap,
+        cvalues = list(np.linspace(vmin, vmax, 20))
+        cbar = matplotlib.colorbar.ColorbarBase(ax=cax, cmap=cmap,  values=cvalues,
                                                 orientation="horizontal")
     cbar.set_label("Fisher's Z difference")
     return draw_obj

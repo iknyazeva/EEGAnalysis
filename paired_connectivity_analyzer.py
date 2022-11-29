@@ -2,9 +2,12 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import matplotlib.image as img
 from metrics import dice, jaccard
+from scipy import stats
 from matplotlib import cm
+import pandas as pd
 import numpy as np
 from collections import Counter
+from itertools import combinations
 
 
 class DrawEEG:
@@ -28,7 +31,8 @@ class DrawEEG:
         self.ax = None
 
     def draw_edges(self, pair_names, values_color=None, values_width=None,
-                   normalize_values=True, normalize_width=False, vmin=-1, vmax=1, cmap=cm.cool, title="Hey, hey!", ax=None):
+                   normalize_values=True, normalize_width=True, vmin=-1, vmax=1, cmap=cm.cool, title="Hey, hey!",
+                   ax=None):
 
         """ draw edges
         Args:
@@ -53,9 +57,9 @@ class DrawEEG:
         if values_width is None:
             values_width = 0.9 * np.ones(len(pair_names))
         if normalize_values:
-            #max_ = np.max(values_color)
+            # max_ = np.max(values_color)
             max_ = vmax
-            #min_ = np.min(values_color)
+            # min_ = np.min(values_color)
             min_ = vmin
 
             if max_ > min_:
@@ -101,13 +105,13 @@ class EEGPairedPermutationAnalyser:
         self.size = len(self.subgroup_ids)
         self.key_bands = {1: 'delta', 2: 'theta', 3: 'alpha1', 4: 'alpha2', 5: 'beta1', 6: 'beta2', 7: 'gamma'}
 
-    def get_subgroup(self, size=70):
+    def get_subgroup(self, size=70, replace=False):
         """function return subgroup from the total group with unique ids
         """
         if size is None:
             self.subgroup_ids = list(self.df.index)
         else:
-            self.subgroup_ids = list(np.random.choice(self.df.index, size=size, replace=False))
+            self.subgroup_ids = list(np.random.choice(self.df.index, size=size, replace=replace))
 
     def plot_chnl_perm_test(self, emp_stat=None, perm_stats=None, ch_idx=0, band=1):
         """ Function for plotting  permutational pairwise statistics for specific channel
@@ -158,6 +162,23 @@ class EEGPairedPermutationAnalyser:
         return dict(zip(self.channel_bivar[sign_connections],
                         [(emp_mean_diffs[sign_connections], p_val[sign_connections]), conf_ints[:, sign_connections]]))
 
+    def ttest_difference_paired(self, band=1):
+        """ Basic wrap for parametric t-test  for estimation inter-channel difference in specific for two condition
+
+        :param band: (int) integer code for band
+        :return: mpirical difference from the data (vector (size num channels)), p_val (vector (size num channels))
+        """
+        self.open_name = [f'{self.channel_bivar[i]}_{band}_fo' for i in range(len(self.channel_bivar))]
+        self.close_name = [f'{self.channel_bivar[i]}_{band}_fz' for i in range(len(self.channel_bivar))]
+        df_sbgroup = self.df.loc[self.subgroup_ids]
+
+        emp_diffs = df_sbgroup[self.open_name].values - df_sbgroup[self.close_name].values
+        emp_mean_diffs = emp_diffs.mean(axis=0)
+        p_val = np.zeros(len(self.open_name))
+        for i in range(len(self.open_name)):
+            t_stat, p_val[i] = stats.ttest_rel(df_sbgroup[self.open_name].values[:,i], df_sbgroup[self.close_name].values[:,i])
+        return emp_mean_diffs, p_val
+
     def perm_difference_paired(self, band=1):
         """ Basic function for estimation inter-channel difference in specific for two condition
 
@@ -180,7 +201,51 @@ class EEGPairedPermutationAnalyser:
         p_val = np.mean(np.abs(perm_mean_diffs) > np.abs(emp_mean_diffs), axis=0)
         return (emp_mean_diffs, p_val), perm_mean_diffs
 
-    def compute_sign_differences(self, idxs=None, size=70, band=1, num_perms=100, thres=0.001):
+    def p_val_reproducibility(self, size: int = 40, band: int = 1,
+                              num_perms: int = 10000, num_exps: int = 50, return_full=False,
+                              is_param=True):
+        """ Track changes in p_value through the different subsets of the group with predefined size.
+        Research question: if we get specific very low p_value in experiment, can we expect that in the other experiments
+        for lower values will be expected lower values (significant)
+
+        :param size: test group size
+        :param band: band number
+        :param num_perms: number of permutation for paired test
+        :param num_exps: number of experiment to simulate
+        :return: channels p_value for original experiment and for the others experiment
+        """
+
+        self.get_subgroup(size=size)
+        self.num_perm = num_perms
+        if is_param:
+            _, p_val_orig = self.ttest_difference_paired(band=band)
+        else:
+            (_, p_val_orig), _ = self.perm_difference_paired(band=band)
+        orig_idxs = self.subgroup_ids
+        available_idxs = list(set(self.df.index) - set(orig_idxs))
+        iter_available_idxs = iter(combinations(available_idxs, size))
+        i = 0
+        sign_others = np.zeros((len(self.channel_bivar), num_exps + 1))
+        sign_others[:, 0] = 1 - p_val_orig
+        while (curr_group_idx := next(iter_available_idxs, None)) is not None and i < num_exps:
+            self.subgroup_ids = list(curr_group_idx)
+            if is_param:
+                _, p_val_curr = self.ttest_difference_paired(band=band)
+            else:
+                (_, p_val_curr), _ = self.perm_difference_paired(band=band)
+            i += 1
+            sign_others[:, i] = 1 - p_val_curr
+        sign_df = pd.DataFrame(data=sign_others, index=self.channel_bivar,
+                     columns=['Orig'] + [f'Sim {k}' for k in np.arange(num_exps)])
+        qs = [10, 25, 50, 75, 90]
+        sign_df[[f'Q_{q}' for q in qs]] = np.percentile(sign_df.iloc[:, 1:], q=qs, axis=1).T
+        if return_full:
+            return sign_df
+        else:
+            return sign_df[['Orig']+[f'Q_{q}' for q in qs]]
+
+    def compute_sign_differences(self, idxs=None, size=70, band=1,
+                                 num_perms=100, thres=0.001):
         """ Compute significant differences
 
         :param size: int, size of group if idxs not specified
@@ -203,7 +268,7 @@ class EEGPairedPermutationAnalyser:
 
         return {'chan_names': chan_names, "chan_diffs": chan_diffs, "chan_pvals": chan_pvals}
 
-    def test_reproducability(self, size=70, band=1, num_reps=100):
+    def test_reproducability(self, size=70, band=1, num_reps=100, replace=False, is_param=True):
         """ Function returned significant channels in each repetion
 
         :param size: (int) size of subgroup
@@ -211,18 +276,21 @@ class EEGPairedPermutationAnalyser:
         :param num_reps:  (int) number of repetitions
         :return: (list of dict) with number if significant channels and statistical value
         """
-        self.get_subgroup(size=None)
+        self.get_subgroup(size=size, replace=replace)
         sign_channels = []
         for i in tqdm(range(num_reps)):
             self.get_subgroup(size=size)
-            (emp_stat, p_val), _ = self.perm_difference_paired(band=band)
+            if is_param:
+                emp_stat, p_val = self.ttest_difference_paired(band=band)
+            else:
+                (emp_stat, p_val), _ = self.perm_difference_paired(band=band)
             sign_channel_ids = np.where(p_val < self.thres)[0]
             if sign_channel_ids.size > 0:
                 sign_channels_values = emp_stat[sign_channel_ids]
                 sign_channels.append(dict(zip(sign_channel_ids, sign_channels_values)))
         return sign_channels
 
-    def pairwise_set_comparisons(self, size=70, band=1, num_reps=10, func=dice, type_='neigh'):
+    def pairwise_set_comparisons(self, size=70, band=1, num_reps=10, func=dice, type_='neigh', replace=False):
         """ Pairwise comparison significant channels sets received for each independent group in every repetion
 
         :param size: int, size of subgroup for simulation
@@ -235,7 +303,7 @@ class EEGPairedPermutationAnalyser:
 
         assert type_ in ['neigh', 'all'], "type_ variable should be 'neigh' or 'all'"
         metric_list = []
-        sign_tested = self.test_reproducability(size=size, band=band, num_reps=num_reps)
+        sign_tested = self.test_reproducability(size=size, band=band, num_reps=num_reps, replace=replace)
         if len(sign_tested) == 0:
             return [], ([], [])
         chns = [list(els.keys()) for els in sign_tested]
@@ -252,7 +320,8 @@ class EEGPairedPermutationAnalyser:
             raise NotImplementedError("type_ could be neigh or all")
         return sign_tested, (metric_list, cnt)
 
-    def compute_reproducible_pattern(self, size=70, num_reps=50, factor=0.4, band=1):
+    def compute_reproducible_pattern(self, size=70, num_reps=50, factor=0.4, band=1,
+                                     replace=False, is_param=True):
 
         """ Compute reproducible pattern, those channels survived with the most of the repetitions
         (experiment simulations)
@@ -264,8 +333,9 @@ class EEGPairedPermutationAnalyser:
         :return:
         """
 
-        assert 0 < factor < 1, "Factor variable should be from 0 to 1"
-        sign_tested = self.test_reproducability(size=size, band=band, num_reps=num_reps)
+        assert 0 < factor <= 1, "Factor variable should be from 0 to 1"
+        sign_tested = self.test_reproducability(size=size, band=band, num_reps=num_reps,
+                                                replace=replace, is_param=is_param)
         cnt = Counter(np.hstack([list(els.keys()) for els in sign_tested]))
         most_frequent = {x: count for x, count in cnt.items() if count >= num_reps * factor}
         if len(most_frequent) == 0:

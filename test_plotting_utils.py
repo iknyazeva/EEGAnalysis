@@ -1,6 +1,6 @@
 from unittest import TestCase
 from paired_connectivity_analyzer import EEGPairedPermutationAnalyser, DrawEEG
-from plotting_utils import plot_compute_sign_differences, draw_edges_by_dict, plot_reproducibility_pattern
+from plotting_utils import plot_compute_sign_differences, draw_edges_by_dict, plot_reproducibility_pattern, plot_reproducibility_by_frequency
 import matplotlib.pyplot as plt
 import pandas as pd
 import matplotlib
@@ -49,10 +49,18 @@ class Test(TestCase):
 
     def test_plot_reproducibility_pattern(self):
         obj = plot_reproducibility_pattern(size=70, band=2, num_perms=100, num_reps=50, factor=0.4,
-                                 thres=0.001, cmap=cm.cool, figsize=(18, 4))
+                                 thres=0.001, cmap=cm.cool, figsize=(6, 4))
         obj = plot_reproducibility_pattern(size=70, band=[1,2,3,4,5,6,7], num_perms=100, num_reps=50, factor=0.4,
                                            thres=0.001, cmap=cm.cool, figsize=(18, 4))
         self.assertTrue(True)
+
+    def test_plot_reproducibility_by_frequency(self):
+
+        pattern, (fig1,fig2) = plot_reproducibility_by_frequency(size=30, band=1, num_reps=10, num_perms=1000, thres=0.05,
+                                      factor=0.01, replace=False,
+                                      cmap=cm.cool, figsize=(18, 4), is_param=True)
+        self.assertTrue(True)
+
 
     def test_plot_compute_sign_differences_int_band(self):
         obj = plot_compute_sign_differences(size=70, band=2, num_perms=100, thres=0.001,
@@ -74,6 +82,6 @@ class Test(TestCase):
         group_size = 60
         obj, pattern = plot_reproducibility_pattern(size=group_size, band=[1, 2, 3, 4, 5, 6, 7], num_perms=100,
                                                     num_reps=10, factor=0.51,
-                                                    thres=0.001, cmap=cm.gist_heat, figsize=(18, 4))
+                                                    thres=0.001, cmap=cm.gist_heat, figsize=(18, 4), replace=True)
         self.assertTrue(True)
 

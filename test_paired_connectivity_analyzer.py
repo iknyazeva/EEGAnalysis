@@ -21,7 +21,7 @@ class TestDrawEEG(TestCase):
 
     def test_draw_edges(self):
         pair_names = self.dict_diffs["chan_names"]
-        values_color, values_width = self.dict_diffs["chan_diffs"], 1-self.dict_diffs["chan_pvals"]
+        values_color, values_width = self.dict_diffs["chan_diffs"], 1 - self.dict_diffs["chan_pvals"]
         title = f"Significant differences \"open-close\" for {self.draw_obj.bands[5]}"
         self.draw_obj.draw_edges(pair_names=pair_names, values_color=values_color,
                                  values_width=values_width, title=title)
@@ -30,7 +30,7 @@ class TestDrawEEG(TestCase):
         cax = divider.new_vertical(size="5%", pad=0.7, pack_start=True)
         self.draw_obj.fig.add_axes(cax)
         cbar = matplotlib.colorbar.ColorbarBase(ax=cax, cmap=cm.cool, values=sorted(values_color),
-                                        orientation="horizontal")
+                                                orientation="horizontal")
         cbar.set_label("Fisher's Z difference")
         plt.show()
 
@@ -46,8 +46,6 @@ class TestDrawEEG(TestCase):
         plt.show()
 
         self.assertTrue(True)
-
-
 
 
 class TestEEGPairedPermutationAnalyser(TestCase):
@@ -66,13 +64,27 @@ class TestEEGPairedPermutationAnalyser(TestCase):
         self.assertEqual(len(self.analyzer.subgroup_ids), 10, 'Indexes should be updated with the len of subgroup')
 
     def test_perm_difference_paired(self):
-        #self.analyzer.get_subgroup(size=len(self.analyzer.df.index))
+        # self.analyzer.get_subgroup(size=len(self.analyzer.df.index))
         self.analyzer.get_subgroup(size=40)
-        self.num_perms = 1000
+        self.analyzer.num_perm = 10000
         (emp_mean_diffs, p_val), perm_mean_diffs = self.analyzer.perm_difference_paired(band=1)
         self.assertIsInstance(emp_mean_diffs.mean(), float, "Mean difference should be float")
         self.assertIsInstance(p_val, float, "P-val should be float")
         self.assertIsInstance(perm_mean_diffs, np.ndarray or list)
+
+    def test_ttest_difference_paired(self):
+        self.analyzer.get_subgroup(size=None)
+        self.analyzer.num_perm = 10000
+        emp_mean_diffs, p_val = self.analyzer.ttest_difference_paired(band=1)
+        (emp_mean_diffs, p_val_perm), perm_mean_diffs = self.analyzer.perm_difference_paired(band=1)
+        p_df = pd.DataFrame(np.vstack([p_val, p_val_perm]).T,columns=['p_val_param', 'p_val_noparam'])
+        self.assertIsInstance(emp_mean_diffs.mean(), float, "Mean difference should be float")
+        self.assertIsInstance(p_val.mean(), float, "P-val should be float")
+
+    def test_p_val_reproducibility(self):
+        sign_df = self.analyzer.p_val_reproducibility(size=40, band=1,
+                                                      num_perms=1000, num_exps=10)
+        self.assertTrue(True)
 
     def test_compute_sign_differences(self):
         dict_diffs = self.analyzer.compute_sign_differences(size=20, band=1, num_perms=1000, thres=0.001)

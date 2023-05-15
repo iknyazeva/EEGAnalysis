@@ -202,8 +202,8 @@ class EEGPairedPermutationAnalyser:
         return (emp_mean_diffs, p_val), perm_mean_diffs
 
     def p_val_reproducibility(self, size: int = 40, band: int = 1,
-                              num_perms: int = 10000, num_exps: int = 50, return_full=False,
-                              is_param=True):
+                              num_perms: int = 10000, num_exps: int = 50, return_full: bool = False,
+                              is_param: bool =True):
         """ Track changes in p_value through the different subsets of the group with predefined size.
         Research question: if we get specific very low p_value in experiment, can we expect that in the other experiments
         for lower values will be expected lower values (significant)

@@ -224,58 +224,116 @@ class SubsampleTable:
 
         idx_to_split = list(self.full_index)
         full_len = len(idx_to_split)
-        assert size < full_len//2+overlay, 'Not enough data for splitting'
+        assert size < full_len // 2 + overlay, 'Not enough data for splitting'
         np.random.shuffle(idx_to_split)
         list_of_idxs = []
         for ndx in range(0, full_len, size):
-            if full_len-ndx >= size:
-                list_of_idxs.append(idx_to_split[ndx: ndx+size])
-            elif full_len-ndx < size <= full_len-ndx+overlay:
-                list_of_idxs.append(idx_to_split[ndx-overlay: ndx-overlay + size])
+            if full_len - ndx >= size:
+                list_of_idxs.append(idx_to_split[ndx: ndx + size])
+            elif full_len - ndx < size <= full_len - ndx + overlay:
+                list_of_idxs.append(idx_to_split[ndx - overlay: ndx - overlay + size])
         self.list_of_idxs = list_of_idxs
 
-    def compute_subgroup_stats(self, size=30, overlay=0,
-                               bts_num=1000, eff_thrs=(0.1, 0.15, 0.2)):
+    def compute_one_subroup_stats(self, subgroup_ids, uncorr_levels=(0.01, 0.05),
+                              ground_true: np.ndarray = None, bts_num=1000,
+                              eff_thrs=(0.1, 0.15, 0.2)):
+        """
+        Compute statistics of reproducibility compared to ground true for subgroups
+        Parameters
+        ----------
+        subgroup_ids: list of string
+            ids from big table index
+        uncorr_levels: tuple or list of floats
+            uncorrected level for p-values
+        ground_true: array of Bool
+            array with ground trues
+        bts_num: int
+            number for bootstrap
+        eff_thrs: list or tuple of floats
+            thresholds for effect sizes
+
+        Returns
+        -------
+        statistics data frame and reproducibility metrics: dice, fdr, power
+        """
+        df_subgroup = self.big_table.df.loc[subgroup_ids]
+        sub_table = SynchronizationTable(df_subgroup)
+        stat_df = sub_table.compute_stat_df(bts_num=bts_num)
+        for uncorr_level in uncorr_levels:
+            stat_df[f'sign_uncorr_{uncorr_level}'] = stat_df['p_val'] < uncorr_level
+        for thrs in eff_thrs:
+            stat_df[f'sign_eff_{thrs}'] = (stat_df['low_eff_size'] > thrs) | (stat_df['upper_eff_size'] < -thrs)
+        cols = list(stat_df.filter(regex='sign').columns)
+
+        ground_stat = pd.DataFrame(vec_2_arr_bool_dice(ground_true, stat_df[cols].values), index=cols, columns=['dice'])
+        power, fdr = vec_2_arr_bool_power_fdr(ground_true, stat_df[cols].values)
+        ground_stat['fdr'] = fdr
+        ground_stat['power'] = power
+        ground_stat['count'] = stat_df[cols].sum()
+        return stat_df[cols], ground_stat
+
+    def compute_subgroups_stats(self, size=30, overlay=0, uncorr_levels=(0.01, 0.05),
+                                ground_true_col='sign_eff_0.15',
+                                bts_num=1000, eff_thrs=(0.1, 0.15, 0.2)):
+
+        stat_df = self.big_table.compute_stat_df(bts_num=bts_num)
+        for thrs in eff_thrs:
+            stat_df[f'sign_eff_{thrs}'] = (stat_df['low_eff_size'] > thrs) | (stat_df['upper_eff_size'] < -thrs)
+        ground_true = stat_df[ground_true_col].values
         self.get_subgroups(size, overlay)
         sign_data = []
+        ground_stat = []
         for subgroup_ids in self.list_of_idxs:
-            df_subgroup = self.big_table.df.loc[subgroup_ids]
-            sub_table = SynchronizationTable(df_subgroup)
-            stat_df = sub_table.compute_stat_df(bts_num=bts_num)
-            for thrs in eff_thrs:
-                stat_df[f'sign_eff_{thrs}'] = (stat_df['low_eff_size'] > thrs) | (stat_df['upper_eff_size'] < -thrs)
-            cols = list(stat_df.filter(regex='sign').columns)
-            sign_data.append(stat_df[cols].values)
-        df_repr = pd.DataFrame(data=np.array(sign_data).mean(axis=0), columns=cols)
-        df_repr['chan_pair'] = stat_df['chan_pair']
-        df_repr['band'] = stat_df['band']
+
+            stat_df_sbg, ground_stat_sbg = self.compute_one_subroup_stats(subgroup_ids, uncorr_levels=uncorr_levels,
+                                                                        ground_true=ground_true, bts_num=bts_num,
+                                                                        eff_thrs=eff_thrs)
+            cols = stat_df_sbg.columns
+            sign_data.append(stat_df_sbg.values)
+            ground_stat.append(ground_stat_sbg)
+
         dice_dict = dict()
         for i, col in enumerate(cols):
             dice_dict[col] = pairwise_bool_dice(np.array(sign_data)[:, :, i].T)
-        return df_repr, dice_dict
+        df_repr = pd.DataFrame(data=np.array(sign_data).mean(axis=0), columns=cols)
+        df_repr['chan_pair'] = stat_df['chan_pair']
+        df_repr['band'] = stat_df['band']
+        ground_stat_df = pd.concat(ground_stat, axis=0).reset_index()
 
-    def repeat_n_subgroup_stats(self, n=5, size=30, overlay=10,
-                                bts_num=1000, eff_thrs=(0.025, 0.05, 0.1)):
+        return df_repr, ground_stat_df, dice_dict
+
+    def repeat_n_subgroup_stats(self, n=5, size=30, overlay=10, ground_true_col='sign_eff_0.15',
+                                uncorr_levels=(0.01, 0.05),
+                                bts_num=1000, eff_thrs=(0.05, 0.1, 0.15)):
         _reprod_values = []
-        merged_dict = dict()
+        _stat_dfs_list = []
+        dice_within_dict = dict()
         for i in tqdm(range(n)):
-            df_repr, dice_dict = self.compute_subgroup_stats(size=size, overlay=overlay,
-                                                             bts_num=bts_num, eff_thrs=eff_thrs)
+            df_repr, ground_stat_df, dice_dict = self.compute_subgroups_stats(size=size, overlay=overlay,
+                                                                    uncorr_levels=uncorr_levels,
+                                                                    ground_true_col=ground_true_col,
+                                                                    bts_num=bts_num, eff_thrs=eff_thrs)
+
             if i == 0:
-                merged_dict = dice_dict
+                dice_within_dict = dice_dict
             else:
-                for k,v in merged_dict.items():
+                for k,v in dice_within_dict.items():
                     v.extend(dice_dict[k])
 
+            _stat_dfs_list.append(ground_stat_df)
             _reprod_values.append(df_repr.filter(regex='sign').values)
         merged_df = pd.DataFrame(data=np.array(_reprod_values).mean(axis=0),
                                  columns=list(df_repr.filter(regex='sign').columns))
+
         merged_df['chan_pair'] = df_repr['chan_pair']
         merged_df['band'] = df_repr['band']
-        return merged_dict, merged_df
-
-
-
+        ground_stat_dfs = pd.concat(_stat_dfs_list)
+        ground_stat_dfs['sample_size'] = size
+        dice_df = pd.DataFrame(dice_within_dict)
+        dice_within_df = dice_df.melt(value_name='dice_coeff', var_name='corr_method')
+        dice_within_df['corr_method'] = dice_within_df[['corr_method']].applymap(lambda x: x[5:])
+        dice_within_df['sample_size'] = size
+        return ground_stat_dfs, merged_df, dice_within_df
 
 
 @jit(nopython=True, cache=True)
@@ -300,12 +358,32 @@ def bool_dice(u, v):
 
 
 @jit(nopython=True, cache=True)
+def bool_power_fdr(u, v):
+    not_u = ~u
+    fdr = float((not_u & v).sum() / v.sum()) if v.sum() > 0 else 0
+    power = float((u & v).sum() / u.sum()) if u.sum() > 0 else 0
+    return power, fdr
+
+
+@jit(nopython=True, cache=True)
 def vec_2_arr_bool_dice(v, arr):
     dice_list = []
     n = arr.shape[1]
     for i in range(n):
         dice_list.append(bool_dice(v, arr[:, i]))
     return dice_list
+
+
+@jit(nopython=True, cache=True)
+def vec_2_arr_bool_power_fdr(v, arr):
+    power = []
+    fdr = []
+    n = arr.shape[1]
+    for i in range(n):
+        ntt, nft = bool_power_fdr(v, arr[:, i])
+        power.append(ntt)
+        fdr.append(nft)
+    return power, fdr
 
 
 @jit(nopython=True, cache=True)

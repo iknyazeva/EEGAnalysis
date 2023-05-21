@@ -2,7 +2,7 @@ from unittest import TestCase
 import time
 from table_analyzer import SynchronizationTable, bootstrap_effect_size
 from table_analyzer import SubsampleTable
-from table_analyzer import bool_dice, pairwise_bool_dice, vec_2_arr_bool_dice
+from table_analyzer import bool_dice, pairwise_bool_dice, vec_2_arr_bool_dice, vec_2_arr_bool_power_fdr, bool_power_fdr
 import pandas as pd
 import numpy as np
 from multipy.fwer import bonferroni, holm_bonferroni, hochberg, sidak
@@ -21,9 +21,7 @@ class TestSynchronizationTable(TestCase):
         self.assertTrue(set(p_val_dict.keys()) ==
                         {'alpha1', 'beta1', 'delta', 'beta2', 'alpha2', 'theta', 'gamma'})
 
-
     def test_compute_individual_ttests_df(self):
-
         t_df = self.table.compute_individual_ttests(return_df=True)
         self.assertIsInstance(t_df, pd.DataFrame)
 
@@ -58,27 +56,47 @@ class TestSubsampleTable(TestCase):
     def setUpClass(cls) -> None:
         df = pd.read_csv('eeg_dataframe_nansfilled.csv', index_col=0)
         cls.table = SynchronizationTable(df)
+
     def test_get_subgroups(self):
         size = 70
         subs_table = SubsampleTable(self.table)
-        subs_table.get_subgroups(size=size, overlay=size//10)
+        subs_table.get_subgroups(size=size, overlay=size // 10)
         self.assertTrue(len(subs_table.list_of_idxs) > 0)
         self.assertTrue()
 
-    def test_compute_subgroup_stats(self):
+    def test_compute_subroup_stats(self):
         size = 60
+        bts_num = 1000
+        eff_thrs = [0.05, 0.10, 0.15]
+        thr = 0.05
         subs_table = SubsampleTable(self.table)
-        df_repr, dice_dict = subs_table.compute_subgroup_stats(size=size, overlay=0,
-                                                               bts_num=100, eff_thrs=(0.05, 0.1, 0.15))
+        subgroup_ids = list(np.random.choice(subs_table.full_index, size=size, replace=False))
+
+        stat_df = self.table.compute_stat_df(bts_num=bts_num)
+        for thrs in eff_thrs:
+            stat_df[f'sign_eff_{thrs}'] = (stat_df['low_eff_size'] > thrs) | (stat_df['upper_eff_size'] < -thrs)
+        ground_true = stat_df[f'sign_eff_{thr}'].values
+
+        stat_df_sbg, ground_stats = subs_table.compute_one_subroup_stats(subgroup_ids,
+                                                                         ground_true=ground_true,
+                                                                         bts_num=bts_num,
+                                                                         eff_thrs=eff_thrs)
+        self.assertTrue(ground_stats['values'] < 1)
+
+    def test_compute_subgroups_stats(self):
+        size = 50
+        subs_table = SubsampleTable(self.table)
+        df_repr, ground_stat_df, dice_dict = subs_table.compute_subgroups_stats(size=size, overlay=0,
+                                                                     uncorr_levels=(0.01, 0.05),
+                                                                     bts_num=100, eff_thrs=(0.05, 0.1, 0.15))
         self.assertTrue(True)
 
     def test_repeat_n_subgroup_stats(self):
         size = 40
         subs_table = SubsampleTable(self.table)
-        merged_dict, merged_df = subs_table.repeat_n_subgroup_stats(n=3, size=size, bts_num=1000)
+        ground_stat_dfs, merged_df, dice_within_df = subs_table.repeat_n_subgroup_stats(n=3, size=size, bts_num=1000)
 
         self.assertTrue(True)
-
 
 
 class Test(TestCase):
@@ -104,10 +122,25 @@ class Test(TestCase):
         coef1 = bool_dice(u1, v1)
         self.assertTrue(bool_dice(u, u) == 1)
 
+    def test_bool_power_fdr(self):
+        u = np.array([1, 0, 1])
+        v = np.array([1, 1, 1])
+        ntt, nft = bool_power_fdr(u, v)
+        self.assertTrue(True)
+
     def test_pairwise_bool_dice(self):
         start = time.time()
         arr = np.random.choice([0, 1], size=(200, 40), p=[0.9, 0.1])
         dice_list = pairwise_bool_dice(arr)
+        end = time.time()
+        print(end - start)
+        self.assertTrue(True)
+
+    def test_vec_2_arr_bool_power_fdr(self):
+        start = time.time()
+        arr = np.random.choice([0, 1], size=(10, 5), p=[0.6, 0.4])
+        v = arr[:, 0]
+        power, fdr = vec_2_arr_bool_power_fdr(v, arr)
         end = time.time()
         print(end - start)
         self.assertTrue(True)

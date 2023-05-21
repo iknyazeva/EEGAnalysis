@@ -125,6 +125,7 @@ class DrawEEG:
                    width_col: str = None,
                    sign: str = 'separate',
                    figsize: tuple[float, float] = (18, 4),
+                   sample_size=177,
                    **kwargs):
 
         kwargs.setdefault('cmap', cm.seismic)
@@ -198,7 +199,7 @@ class DrawEEG:
                                                                     color_col=color_col,
                                                                     width_col=width_col)
                         self.draw_edges(pair_names, values_color, values_width, **kwargs, ax=axs[i][j])
-                    figs[i].suptitle(f"Significant differences {effects[i]}", fontsize=16)
+                    figs[i].suptitle(f"Significant differences {effects[i]}, sample size = {sample_size}, filtered with {filter_by}", fontsize=16)
                     figs[i].subplots_adjust(top=0.8)
         return figs
 

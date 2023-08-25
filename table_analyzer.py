@@ -6,7 +6,7 @@ from itertools import combinations, product
 import numpy.typing as npt
 import pandas as pd
 from scipy import stats
-from typing import TypeVar, Iterable, Tuple, List, Callable, Optional
+from typing import TypeVar, Iterable, Tuple, List, Callable, Optional, Union
 from multipy.fdr import lsu, abh
 from multipy.fwer import bonferroni, holm_bonferroni, hochberg, sidak
 from scipy.spatial.distance import dice
@@ -15,57 +15,11 @@ PDict = TypeVar('PDict')
 
 
 class SynchronizationTable:
-    """ Class for identification of significant pattern
-    and their uncertainty for EEG synchronization results
+    """ Class for computation all
     """
     key_bands = {1: 'delta', 2: 'theta', 3: 'alpha1', 4: 'alpha2', 5: 'beta1', 6: 'beta2', 7: 'gamma'}
     open_postfix = 'fo'
     close_postfix = 'fz'
-
-    ihw_coeffs = {'delta': {'theta': 0.8,
-                            'alpha1': 0.4,
-                            'alpha2': 0.2,
-                            'beta1': 0,
-                            'beta2': 0,
-                            'gamma': 0},
-                  'theta': {'delta': 0.8,
-                            'alpha1': 0.8,
-                            'alpha2': 0.4,
-                            'beta1': 0.2,
-                            'beta2': 0,
-                            'gamma': 0},
-                  'alpha1': {'delta': 0.4,
-                             'theta': 0.8,
-                             'alpha2': 0.8,
-                             'beta1': 0.4,
-                             'beta2': 0.2,
-                             'gamma': 0},
-
-                  'alpha2': {'delta': 0.2,
-                             'theta': 0.4,
-                             'alpha1': 0.8,
-                             'beta1': 0.8,
-                             'beta2': 0.4,
-                             'gamma': 0.2},
-                  'beta1': {'delta': 0,
-                            'theta': 0.2,
-                            'alpha1': 0.4,
-                            'alpha2': 0.8,
-                            'beta2': 0.8,
-                            'gamma': 0.4},
-                  'beta2': {'delta': 0,
-                            'theta': 0,
-                            'alpha1': 0.2,
-                            'alpha2': 0.4,
-                            'beta1': 0.8,
-                            'gamma': 0.8},
-                  'gamma': {'delta': 0,
-                            'theta': 0,
-                            'alpha1': 0,
-                            'alpha2': 0.2,
-                            'beta1': 0.4,
-                            'beta2': 0.8},
-                  }
 
     def __init__(self, df: pd.DataFrame) -> None:
         self.df = df.copy()
@@ -235,8 +189,8 @@ class SubsampleTable:
         self.list_of_idxs = list_of_idxs
 
     def compute_one_subroup_stats(self, subgroup_ids, uncorr_levels=(0.01, 0.05),
-                              ground_true: np.ndarray = None, bts_num=1000,
-                              eff_thrs=(0.1, 0.15, 0.2)):
+                                  ground_true: np.ndarray = None, bts_num=1000,
+                                  eff_thrs=(0.1, 0.15, 0.2)):
         """
         Compute statistics of reproducibility compared to ground true for subgroups
         Parameters
@@ -284,10 +238,9 @@ class SubsampleTable:
         sign_data = []
         ground_stat = []
         for subgroup_ids in self.list_of_idxs:
-
             stat_df_sbg, ground_stat_sbg = self.compute_one_subroup_stats(subgroup_ids, uncorr_levels=uncorr_levels,
-                                                                        ground_true=ground_true, bts_num=bts_num,
-                                                                        eff_thrs=eff_thrs)
+                                                                          ground_true=ground_true, bts_num=bts_num,
+                                                                          eff_thrs=eff_thrs)
             cols = stat_df_sbg.columns
             sign_data.append(stat_df_sbg.values)
             ground_stat.append(ground_stat_sbg)
@@ -310,14 +263,14 @@ class SubsampleTable:
         dice_within_dict = dict()
         for i in tqdm(range(n)):
             df_repr, ground_stat_df, dice_dict = self.compute_subgroups_stats(size=size, overlay=overlay,
-                                                                    uncorr_levels=uncorr_levels,
-                                                                    ground_true_col=ground_true_col,
-                                                                    bts_num=bts_num, eff_thrs=eff_thrs)
+                                                                              uncorr_levels=uncorr_levels,
+                                                                              ground_true_col=ground_true_col,
+                                                                              bts_num=bts_num, eff_thrs=eff_thrs)
 
             if i == 0:
                 dice_within_dict = dice_dict
             else:
-                for k,v in dice_within_dict.items():
+                for k, v in dice_within_dict.items():
                     v.extend(dice_dict[k])
 
             _stat_dfs_list.append(ground_stat_df)
@@ -338,13 +291,16 @@ class SubsampleTable:
 
 @jit(nopython=True, cache=True)
 def bootstrap_effect_size(diff_array, num=100,
-                          conf_int=(2.5, 97.5)):
+                          conf_int=(2.5, 97.5), return_dist=False):
     effect_sizes = np.zeros(num)
     diff_array = diff_array.copy()
     for i in range(num):
         bs_array = np.random.choice(diff_array, len(diff_array))
         effect_sizes[i] = np.mean(bs_array) / np.std(bs_array)
-    return np.mean(effect_sizes), np.percentile(effect_sizes, conf_int)
+    if return_dist:
+        return effect_sizes
+    else:
+        return np.mean(effect_sizes), np.percentile(effect_sizes, conf_int)
 
 
 @jit(nopython=True, cache=True)

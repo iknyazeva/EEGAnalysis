@@ -87,8 +87,8 @@ class TestSubsampleTable(TestCase):
         size = 50
         subs_table = SubsampleTable(self.table)
         df_repr, ground_stat_df, dice_dict = subs_table.compute_subgroups_stats(size=size, overlay=0,
-                                                                     uncorr_levels=(0.01, 0.05),
-                                                                     bts_num=100, eff_thrs=(0.05, 0.1, 0.15))
+                                                                                uncorr_levels=(0.01, 0.05),
+                                                                                bts_num=100, eff_thrs=(0.05, 0.1, 0.15))
         self.assertTrue(True)
 
     def test_repeat_n_subgroup_stats(self):
@@ -144,3 +144,8 @@ class Test(TestCase):
         end = time.time()
         print(end - start)
         self.assertTrue(True)
+
+
+class TestEEGSynchronizationTable(TestCase):
+    def test_get_2dim_data(self):
+        self.fail()

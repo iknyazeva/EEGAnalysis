@@ -1,12 +1,8 @@
 import numpy as np
 from eeg_data_class import PairsElectrodes, Electrodes, Bands
-from tqdm import tqdm
-from numba import jit
-from collections import Counter
-from itertools import combinations, product
 import numpy.typing as npt
 import pandas as pd
-from scipy import stats
+from non_param_utils import mass_univariate_2d_testing, non_parametric_2d_testing
 from typing import TypeVar, Iterable, Tuple, List, Callable, Optional, Union
 
 
@@ -35,13 +31,12 @@ class DataTable:
 
     def __eq__(self, other):
         if isinstance(other, DataTable):
-            return (self.data == other.data) and (self.subj_list == other.subj_list)
+            return (self.data == other.data).all() and (self.subj_list == other.subj_list)
         else:
             raise NotImplementedError('Only eq between DataTables is supported')
 
-
     def compute_stat(self, type_stat: str = 'mean'):
-        assert type_stat in ['mean', 'eff_size', 't_stat'], 'Only mean, eff_size and t_stat implemented'
+        # assert type_stat in ['mean', 'eff_size', 't_stat'], 'Only mean, eff_size and t_stat implemented'
         if type_stat == 'mean':
             return self.data.mean(axis=0)
         elif type_stat == 'eff_size':
@@ -50,6 +45,19 @@ class DataTable:
             return np.sqrt(len(self.subj_list)) * np.abs(self.data.mean(axis=0)) / self.data.std(axis=0)
         else:
             raise NotImplementedError('Only three statistics implemented: "mean", "eff_size", "t_stat"')
+
+    def test_zero_effect_non_parametric(self, num=1000,
+                                        alpha=0.05,
+                                        type_stat='eff_size',
+                                        is_numba=False):
+        p_vals = non_parametric_2d_testing(self.data, num=num, type_stat=type_stat, is_numba=is_numba)
+        rejected = p_vals < alpha
+        return rejected, p_vals
+
+    def test_zero_effect_parametric(self, correction=None, alpha=0.05):
+        p_vals = mass_univariate_2d_testing(self.data, correction=correction)
+        rejected = p_vals < alpha
+        return rejected, p_vals
 
 
 class EEGSynchronizationTable(DataTable):
@@ -108,12 +116,37 @@ class PairedNonParametric:
         assert table1.subj_list == table2.subj_list, 'Should be equal subject list'
         self.table1 = table1
         self.table2 = table2
+        self.type_stat = type_stat
 
     def get_emp_diff(self):
-        return DataTable(self.table1-self.table2, self.table1.subj_list)
+        return self.table2 - self.table1
 
-    def get_perm_diff(self):
-        n = len(self.table1.subj_list)
+    def get_empirical_stat(self, diff: DataTable):
+        return diff.compute_stat(type_stat=self.type_stat)
+
+    def get_zero_eff_perm_non_parametric(self, num=1000, alpha=0.05):
+
         diff_table = self.get_emp_diff()
-        return DataTable(np.random.choice([1, -1], n)*diff_table.data, self.table1.subj_list)
+        rejected, p_vals = diff_table.test_zero_effect_non_parametric(num=num, alpha=alpha, type_stat=self.type_stat)
+
+        return rejected, p_vals
+
+    def get_zero_eff_parametric(self, correction=None, alpha=0.05):
+        """
+
+        Parameters
+        ----------
+        correction: str
+                    available corrections: 'bonferroni', 'sidak', 'holm-sidak', 'holm', 'fdr_bh', 'fdr_by',
+                              'fdr_tsbh'
+        alpha
+
+        Returns
+        -------
+
+        """
+        diff_table = self.get_emp_diff()
+        rejected, p_vals = diff_table.test_zero_effect_parametric(correction, alpha)
+
+        return rejected, p_vals
 

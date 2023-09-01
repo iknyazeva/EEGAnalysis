@@ -70,7 +70,7 @@ class Test(TestCase):
         sh_rejected = np.mean(p_vals < 0.05)
         self.assertTrue((p_vals <= 1).all())
     def test_mass_univariate_2d_testing(self):
-        p_vals = mass_univariate_2d_testing(self.data, correction=None)
+        p_vals = mass_univariate_2d_testing(self.data, correction='uncorr')
         sh_rejected = np.mean(p_vals < 0.05)
         p_vals_bonf = mass_univariate_2d_testing(self.data, correction='bonferroni')
         sh_rejected_bonf = np.mean(p_vals_bonf < 0.05)

@@ -98,13 +98,21 @@ def permute_null_dist(diff_array,
 
 def np_compute_p_val_from_null(stats_2dim,
                                null_stat_1dim,
-                               null_stat_2dim):
+                               null_stat_2dim,
+                               agg='wmean'):
     p_vals = np.zeros_like(stats_2dim)
     for i in range(stats_2dim.shape[0]):
         for j in range(stats_2dim.shape[1]):
             p1 = np.mean(null_stat_1dim[:, i] >= stats_2dim[i, j])
             p2 = np.mean(null_stat_2dim[:, j] >= stats_2dim[i, j] )
-            p_vals[i, j] = max(p1, p2)
+            if agg=='max':
+                p_vals[i, j] = max(p1, p2)
+            elif agg=='min':
+                p_vals[i, j] = min(p1, p2)
+            elif agg=='wmean':
+                p_vals[i, j] = 0.8*p1+0.2*p2
+            else:
+                raise NotImplementedError('Only min, max, mean')
     return p_vals
 
 
@@ -121,7 +129,7 @@ def nb_compute_p_val_from_null(stats_2dim,
     return p_vals
 
 
-def non_parametric_2d_testing(diff_arr, num=100, is_numba=False, type_stat='eff_size'):
+def non_parametric_2d_testing(diff_arr, num=100, is_numba=False, type_stat='eff_size', agg='max'):
     if is_numba:
         stats_2dim = nb_2d_stat(diff_arr, type_stat=type_stat)
         null_stat_1dim, null_stat_2dim = nb_permute_null_dist(diff_arr, num=num, type_stat=type_stat)
@@ -130,21 +138,22 @@ def non_parametric_2d_testing(diff_arr, num=100, is_numba=False, type_stat='eff_
         stats_2dim = np_2d_stat(diff_arr, type_stat=type_stat)
         null_stat_1dim, null_stat_2dim = permute_null_dist(diff_arr, num=num,
                                                            type_stat=type_stat, return_dist=True)
-        p_vals = np_compute_p_val_from_null(stats_2dim, null_stat_1dim, null_stat_2dim)
+        p_vals = np_compute_p_val_from_null(stats_2dim, null_stat_1dim, null_stat_2dim, agg=agg)
     return p_vals
 
 def mass_univariate_2d_testing(diff_arr,
-                               correction=None,
+                               correction='uncorr',
                                alpha=0.05):
     p_vals = stats.ttest_1samp(diff_arr, popmean=0, axis=0).pvalue
-    if correction:
-        assert correction in ['bonferroni', 'sidak', 'holm-sidak', 'holm', 'fdr_bh', 'fdr_by',
-                              'fdr_tsbh'], 'Method is not recognized '
+    assert correction in ['uncorr', 'bonferroni', 'sidak', 'holm-sidak', 'holm', 'fdr_bh', 'fdr_by',
+                          'fdr_tsbh'], 'Method is not recognized '
+    if correction == 'uncorr':
+        return p_vals
+    else:
 
         _, p_vals_corr,_,_ = multipletests(p_vals.flatten(), alpha=alpha, method=correction)
         return p_vals_corr.reshape(*p_vals.shape)
-    else:
-        return p_vals
+
 
 
 

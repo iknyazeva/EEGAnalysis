@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import List
 from itertools import combinations
 
 
@@ -123,7 +124,18 @@ class PairsElectrodes:
         return list(combinations(els, 2))
 
 
+    def create_pairs_dict(self, pairs_list, filter_by = None):
+        pairs_dict = dict()
+        p_list = pairs_list.copy()
+        els = list(map(lambda x: x.name, self.electrodes))
+        if filter_by:
+            for opt in filter_by:
+                p_list = [pair for pair in p_list if opt in pair]
+        for i, el1 in enumerate(els):
+            el1_p_list = [pair for pair in p_list if el1 in pair]
+            for el2 in els[i+1:]:
+                pairs_dict[(el1, el2)] = [pair for pair in el1_p_list if el2 in pair]
+        return pairs_dict
 
-@dataclass
-class EEG10_20:
-    pass
+
+

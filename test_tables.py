@@ -31,11 +31,14 @@ class TestDataTable(TestCase):
         subtable = self.table1.get_subtable_by_subjs(subs[0])
         self.assertTrue(True)
 
-
     def test_compute_stat(self):
         self.assertRaises(NotImplementedError, self.table1.compute_stat, 'efff_size')
         eff_sizes = self.table1.compute_stat(type_stat='eff_size')
         self.assertEqual(eff_sizes.shape, self.table1.data[0].shape)
+
+    def test_compute_zero_eff_size_distribution(self):
+        eff_array = self.table1.compute_zero_eff_size_distribution(bs_num=1000)
+        self.assertTrue(True)
 
 
 class TestEEGSynchronizationTable(TestCase):
@@ -119,16 +122,29 @@ class TestPairedNonParametric(TestCase):
 
 class TestReproducibility(TestCase):
 
-
     def setUp(self) -> None:
 
         path_to_df = 'eeg_dataframe_nansfilled.csv'
         self.stable_fo = EEGSynchronizationTable.read_from_eeg_dataframe(path_to_df, cond_prefix='fo')
         self.stable_fz = EEGSynchronizationTable.read_from_eeg_dataframe(path_to_df, cond_prefix='fz')
 
-    def test_compare_pairwise(self):
-        pass
+    def test__compute_p_vals(self):
+        #subj_lists = self.stable_fz.get_subj_subsamples(177, type_subs='bs', num=1)
+        rpr = Reproducibility(self.stable_fz, self.stable_fo)
+        rejected, p_vals = rpr._compute_p_vals(self.stable_fz,
+                        self.stable_fo,
+                        correction='np',
+                        per_num=100, alpha=0.05, agg='wmean')
+        self.assertTrue(True)
 
+    def test_compute_p_vals_bs_samples(self):
+        rpr = Reproducibility(self.stable_fz, self.stable_fo)
+        for sample_size in [20, 30, 40, 50, 60, 70, 80]:
+            print(f'In process {sample_size}')
+            res = rpr.compute_p_vals_bs_samples(sample_size=sample_size, bs_num=500,
+                               correction='np', agg='wmean', per_num=5000,
+                               save_path='./repr_results')
+        self.assertTrue(True)
     def test_dice_by_methods(self):
         subj_lists = self.stable_fz.get_subj_subsamples(177, type_subs='bs', num=1)
         rpr = Reproducibility(self.stable_fz, self.stable_fo)
@@ -137,11 +153,11 @@ class TestReproducibility(TestCase):
 
     def test_power_fdr_rel_full(self):
         rpr = Reproducibility(self.stable_fz, self.stable_fo)
-        #['bonferroni', 'sidak', 'holm-sidak', 'holm', 'fdr_bh', 'fdr_by',
+        # ['bonferroni', 'sidak', 'holm-sidak', 'holm', 'fdr_bh', 'fdr_by',
         # 'fdr_tsbh', 'np', None]
-        #None, 'bonferroni', 'fdr_bh',
-        av_p, av_fdr, av_count = {},{},{}
-        for correction in ['uncorr', 'bonferroni', 'sidak', 'holm','fdr_bh','fdr_by', 'fdr_by', 'fdr_tsbh', 'np']:
+        # None, 'bonferroni', 'fdr_bh',
+        av_p, av_fdr, av_count = {}, {}, {}
+        for correction in ['uncorr', 'bonferroni', 'sidak', 'holm', 'fdr_bh', 'fdr_by', 'fdr_by', 'fdr_tsbh', 'np']:
             power, fdr, count = rpr.power_fdr_rel_full(sample_size=30, correction=correction, perm_num=5000,
                                                        full_correction='fdr_by', bs_num=5, agg='max')
             av_p[correction] = power
@@ -155,13 +171,15 @@ class TestReproducibility(TestCase):
         for sample_size in [20, 30, 40, 50, 60, 70, 80]:
             print(f'In process {sample_size}')
             res = rpr.compare_btsp_to_full(sample_size=sample_size, full_correction='bonferroni',
-                             bs_num=1000, perm_num=5000, agg='wmean', save_path='./repr_results')
+                                           bs_num=1000, perm_num=5000, agg='wmean', save_path='./repr_results')
         self.assertTrue(True)
+
     def test_bootstrap_reproducibility(self):
 
         rpr = Reproducibility(self.stable_fz, self.stable_fo)
 
-
-        dice_list = rpr.bootstrap_reproducibility(sample_size=30, num=10, per_num=1000, correction='np',  alpha=0.05)
+        dice_list = rpr.bootstrap_reproducibility(sample_size=30, num=10, per_num=1000, correction='np', alpha=0.05)
         dice_stat = np.mean(dice_list), np.std(dice_list)
         self.fail()
+
+

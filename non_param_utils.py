@@ -1,7 +1,19 @@
 import numpy as np
 from numba import jit, prange
+import numba as nb
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
+
+
+@jit(nopython=True, cache=True)
+def bootstrap_effect_size(diff_array, num=100):
+    conf_int = nb.typed.List([2.5, 97.5])
+    effect_sizes = np.zeros(num)
+    diff_array = diff_array.copy()
+    for i in range(num):
+        bs_array = np.random.choice(diff_array, len(diff_array))
+        effect_sizes[i] = np.mean(bs_array) / np.std(bs_array)
+    return np.mean(effect_sizes), np.percentile(effect_sizes, nb.typed.List(conf_int))
 
 
 @jit(nopython=True, cache=True)
@@ -104,13 +116,13 @@ def np_compute_p_val_from_null(stats_2dim,
     for i in range(stats_2dim.shape[0]):
         for j in range(stats_2dim.shape[1]):
             p1 = np.mean(null_stat_1dim[:, i] >= stats_2dim[i, j])
-            p2 = np.mean(null_stat_2dim[:, j] >= stats_2dim[i, j] )
-            if agg=='max':
+            p2 = np.mean(null_stat_2dim[:, j] >= stats_2dim[i, j])
+            if agg == 'max':
                 p_vals[i, j] = max(p1, p2)
-            elif agg=='min':
+            elif agg == 'min':
                 p_vals[i, j] = min(p1, p2)
-            elif agg=='wmean':
-                p_vals[i, j] = 0.8*p1+0.2*p2
+            elif agg == 'wmean':
+                p_vals[i, j] = 0.8 * p1 + 0.2 * p2
             else:
                 raise NotImplementedError('Only min, max, mean')
     return p_vals
@@ -141,6 +153,7 @@ def non_parametric_2d_testing(diff_arr, num=100, is_numba=False, type_stat='eff_
         p_vals = np_compute_p_val_from_null(stats_2dim, null_stat_1dim, null_stat_2dim, agg=agg)
     return p_vals
 
+
 def mass_univariate_2d_testing(diff_arr,
                                correction='uncorr',
                                alpha=0.05):
@@ -151,9 +164,5 @@ def mass_univariate_2d_testing(diff_arr,
         return p_vals
     else:
 
-        _, p_vals_corr,_,_ = multipletests(p_vals.flatten(), alpha=alpha, method=correction)
+        _, p_vals_corr, _, _ = multipletests(p_vals.flatten(), alpha=alpha, method=correction)
         return p_vals_corr.reshape(*p_vals.shape)
-
-
-
-

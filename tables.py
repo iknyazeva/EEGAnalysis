@@ -2,7 +2,7 @@ import numpy as np
 from eeg_data_class import PairsElectrodes, Electrodes, Bands
 import numpy.typing as npt
 import pandas as pd
-from non_param_utils import mass_univariate_2d_testing, non_parametric_2d_testing
+from non_param_utils import mass_univariate_2d_testing, non_parametric_2d_testing, bootstrap_effect_size
 from typing import TypeVar, Iterable, Tuple, List, Callable, Optional, Union
 from reproducibility_utils import bool_dice, bool_power_fdr, pairwise_bool_dice
 from reproducibility_utils import vec_2_arr_bool_dice, vec_2_arr_bool_power_fdr
@@ -38,8 +38,8 @@ class DataTable:
         else:
             raise NotImplementedError('Only eq between DataTables is supported')
 
-    def get_subj_subsamples(self, size:int, type_subs: str='bs', num:int=10,
-                            replace:bool=False, overlay:int=10):
+    def get_subj_subsamples(self, size: int, type_subs: str = 'bs', num: int = 10,
+                            replace: bool = False, overlay: int = 10):
         assert size <= len(self.subj_list), f'Could not sample size {size} from smaller dataset'
         from operator import itemgetter
         n = len(self.subj_list)
@@ -72,9 +72,6 @@ class DataTable:
         except:
             print('Not all subjects in index')
 
-
-
-
     def compute_stat(self, type_stat: str = 'mean'):
         # assert type_stat in ['mean', 'eff_size', 't_stat'], 'Only mean, eff_size and t_stat implemented'
         if type_stat == 'mean':
@@ -85,6 +82,25 @@ class DataTable:
             return np.sqrt(len(self.subj_list)) * np.abs(self.data.mean(axis=0)) / self.data.std(axis=0)
         else:
             raise NotImplementedError('Only three statistics implemented: "mean", "eff_size", "t_stat"')
+
+    def compute_zero_eff_size_distribution(self, bs_num=10, conf_int=None):
+        """Get distribution of zero effect along interested axes"""
+        eff_array = np.zeros((3, *self.data[0].shape))
+        #could be optimize with bootstraping whole data at ones
+        if self.data.ndim == 3:
+            for i in range(eff_array.shape[1]):
+                for j in range(eff_array.shape[2]):
+                    mean, perc = bootstrap_effect_size(self.data[:,i,j], num=bs_num)
+                    eff_array[0,i,j] = mean
+                    for k in range(len(perc)):
+                        eff_array[1+k, i, j] = perc[k]
+        else:
+            NotImplementedError('Only for 3 dim tables implemented')
+
+        return eff_array
+
+
+        pass
 
     def test_zero_effect_non_parametric(self, num=1000,
                                         alpha=0.05,
@@ -130,7 +146,7 @@ class EEGSynchronizationTable(DataTable):
                                 cond_prefix='fo',
                                 band_list=None):
         if band_list is None:
-            band_list = [1,2,3,4,5,6,7]
+            band_list = [1, 2, 3, 4, 5, 6, 7]
             bands = Bands
         df = pd.read_csv(path_to_df, index_col=0)
         subj_list = list(df.index)
@@ -153,7 +169,6 @@ class EEGSynchronizationTable(DataTable):
             return EEGSynchronizationTable(new_data, subj_list, self.el_pairs_list, self.bands)
         except:
             print('Not all subjects in index')
-
 
     def get_2dim_data(self,
                       band: Optional[str],
@@ -189,8 +204,6 @@ class PairedNonParametric:
         self.table2 = table2
         self.type_stat = type_stat
 
-
-
     def get_emp_diff(self):
         return self.table2 - self.table1
 
@@ -198,9 +211,9 @@ class PairedNonParametric:
         return diff.compute_stat(type_stat=self.type_stat)
 
     def get_zero_eff_perm_non_parametric(self, num=1000, alpha=0.05, agg='max'):
-
         diff_table = self.get_emp_diff()
-        rejected, p_vals = diff_table.test_zero_effect_non_parametric(num=num, alpha=alpha, type_stat=self.type_stat, agg=agg)
+        rejected, p_vals = diff_table.test_zero_effect_non_parametric(num=num, alpha=alpha, type_stat=self.type_stat,
+                                                                      agg=agg)
 
         return rejected, p_vals
 
@@ -223,6 +236,7 @@ class PairedNonParametric:
 
         return rejected, p_vals
 
+
 class Reproducibility:
 
     def __init__(self, table1, table2, ground_true=False):
@@ -233,6 +247,36 @@ class Reproducibility:
     def compare_pairwise(p_vals1: npt.NDArray, p_vals2: npt.NDArray):
 
         return bool_dice(p_vals1.flatten(), p_vals2.flatten())
+
+    def compute_p_vals_bs_samples(self, sample_size=30, bs_num=10,
+                               correction='np', agg='wmean', per_num=1000,
+                               save_path='./repr_results'):
+        subj_lists = self.table1.get_subj_subsamples(sample_size,
+                                                     type_subs='bs', num=bs_num, replace=False)
+
+
+        p_vals_arr = np.zeros((len(subj_lists),* self.table1.data[0].shape))
+        for i, subjs in enumerate(subj_lists):
+            stable1 = self.table1.get_subtable_by_subjs(subjs)
+            stable2 = self.table2.get_subtable_by_subjs(subjs)
+            rejected, p_vals = self._compute_p_vals(stable1, stable2, correction, per_num, alpha=0.05, agg=agg)
+            p_vals_arr[i] = p_vals
+        if correction =='np':
+            method = f'{correction}_{agg}_{per_num}'
+        else:
+            method = correction
+        res = {'sample_size': sample_size, 'correction': method,
+               'p_vals_arr': p_vals_arr}
+
+        if save_path:
+            with open(f'{save_path}/bs_samples_p_{sample_size}_bs_num_{bs_num}_{method}.pkl',
+                      'wb') as f:
+                pickle.dump(res, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        return res
+
+
+
 
     def bootstrap_reproducibility(self, sample_size=30, num=10,
                                   correction='np',
@@ -272,7 +316,7 @@ class Reproducibility:
         rejected_arr = []
         if methods is None:
             methods = ['bonferroni', 'sidak', 'holm-sidak', 'holm', 'fdr_bh', 'fdr_by',
-                              'fdr_tsbh', 'np', None]
+                       'fdr_tsbh', 'np', 'uncorr']
 
         for correction in methods:
 
@@ -304,13 +348,8 @@ class Reproducibility:
             count.append(np.sum(rejected))
             rejected_arr.append(rejected.flatten())
 
-
         power, fdr = vec_2_arr_bool_power_fdr(rej_full.flatten(), np.array(rejected_arr).T)
         return power, fdr, count
-
-
-
-
 
     def _compute_p_vals(self,
                         table1,
@@ -318,7 +357,7 @@ class Reproducibility:
                         correction='np',
                         per_num=1000, alpha=0.05, agg='max'):
 
-        assert correction in ['uncorr','bonferroni', 'sidak', 'holm-sidak', 'holm', 'fdr_bh', 'fdr_by',
+        assert correction in ['uncorr', 'bonferroni', 'sidak', 'holm-sidak', 'holm', 'fdr_bh', 'fdr_by',
                               'fdr_tsbh', 'np'], f'{correction} not available'
 
         pt = PairedNonParametric(table1, table2)
@@ -329,17 +368,19 @@ class Reproducibility:
         return rejected, p_vals
 
     def compare_btsp_to_full(self, sample_size=30, full_correction='fdr_by',
-                               bs_num=5, perm_num=5000, agg='max', save_path='./repr_results'):
+                             bs_num=5, perm_num=5000, agg='max', save_path='./repr_results'):
         power_d, fdr_d, count_d = {}, {}, {}
         for correction in ['uncorr', 'bonferroni', 'sidak', 'holm', 'fdr_bh', 'fdr_by', 'fdr_by', 'fdr_tsbh', 'np']:
-            power, fdr, count = self.power_fdr_rel_full(sample_size=sample_size, correction=correction, perm_num=perm_num,
-                                                       full_correction='fdr_by', bs_num=bs_num, agg=agg)
+            power, fdr, count = self.power_fdr_rel_full(sample_size=sample_size, correction=correction,
+                                                        perm_num=perm_num,
+                                                        full_correction='fdr_by', bs_num=bs_num, agg=agg)
             power_d[correction] = power
             fdr_d[correction] = fdr
             count_d[correction] = count[1:]
         res = {'sample_size': sample_size, 'full_correction': full_correction, 'full_count': count[0],
-                'perm_num': perm_num, 'power': power_d, 'fdr': fdr_d, 'count': count_d}
+               'perm_num': perm_num, 'power': power_d, 'fdr': fdr_d, 'count': count_d}
         if save_path:
-            with open(f'{save_path}/repr_res{sample_size}_full_{full_correction}_agg_{agg}_perm_num_{perm_num}.pkl', 'wb') as f:
+            with open(f'{save_path}/repr_res{sample_size}_full_{full_correction}_agg_{agg}_perm_num_{perm_num}.pkl',
+                      'wb') as f:
                 pickle.dump(res, f, protocol=pickle.HIGHEST_PROTOCOL)
         return res

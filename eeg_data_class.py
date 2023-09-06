@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List
+from typing import List, Union, Optional, Tuple
+import numpy.typing as npt
 from itertools import combinations
 
 
@@ -34,6 +35,7 @@ class Electrodes(Enum):
     P3 = 17
     Pz = 18
     P4 = 19
+
 
 # @dataclass()
 # class IHWdefaults:
@@ -123,8 +125,7 @@ class PairsElectrodes:
         els = list(map(lambda x: x.name, self.electrodes))
         return list(combinations(els, 2))
 
-
-    def create_pairs_dict(self, pairs_list, filter_by = None):
+    def create_pairs_dict(self, pairs_list, filter_by=None):
         pairs_dict = dict()
         p_list = pairs_list.copy()
         els = list(map(lambda x: x.name, self.electrodes))
@@ -133,9 +134,34 @@ class PairsElectrodes:
                 p_list = [pair for pair in p_list if opt in pair]
         for i, el1 in enumerate(els):
             el1_p_list = [pair for pair in p_list if el1 in pair]
-            for el2 in els[i+1:]:
+            for el2 in els[i + 1:]:
                 pairs_dict[(el1, el2)] = [pair for pair in el1_p_list if el2 in pair]
         return pairs_dict
 
 
+class EEGdata:
 
+    def __init__(self, electrodes,
+                 bands: Union[List['str'], Bands],
+                 el_pairs_list: Optional[List[Tuple['str']]] = None):
+        self.electrodes = electrodes
+        self.bands = bands
+        self.el_pairs_list = el_pairs_list
+
+    def set_values_to_electrodes(self, name: str, data: npt.NDArray):
+        assert data.shape[0] == len(self.electrodes), 'Values should match to electrone pairs '
+        assert data.shape[1] == len(self.bands), 'Values should match to frequency bands'
+        setattr(self, name, data)
+
+    def set_values_to_pairs(self, name: str, data: npt.NDArray):
+        assert data.shape[0] == len(self.el_pairs_list), 'Values should match to electrone pairs '
+        assert data.shape[1] == len(self.bands), 'Values should match to frequency bands'
+        setattr(self, name, data)
+
+
+class EEGdata1020(EEGdata, PairsElectrodes):
+
+    def __init__(self):
+        self.electrodes = Electrodes
+        self.bands = Bands
+        self.el_pairs_list = PairsElectrodes(Electrodes).electrode_pairs

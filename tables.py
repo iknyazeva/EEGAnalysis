@@ -83,24 +83,23 @@ class DataTable:
         else:
             raise NotImplementedError('Only three statistics implemented: "mean", "eff_size", "t_stat"')
 
-    def compute_zero_eff_size_distribution(self, bs_num=10, conf_int=None):
-        """Get distribution of zero effect along interested axes"""
-        eff_array = np.zeros((3, *self.data[0].shape))
-        #could be optimize with bootstraping whole data at ones
+    def compute_eff_size_distribution(self, bs_num=10):
+        """Get distribution of effect size along all dimensions, subjects in rows
+        returns np.array, where at first dimension mean and pct values at level 2.5, 97.5
+        """
+        eff_array = np.zeros((*self.data[0].shape,3))
+        # could be optimize with bootstraping whole data at ones
         if self.data.ndim == 3:
-            for i in range(eff_array.shape[1]):
-                for j in range(eff_array.shape[2]):
-                    mean, perc = bootstrap_effect_size(self.data[:,i,j], num=bs_num)
-                    eff_array[0,i,j] = mean
+            for i in range(self.data.shape[1]):
+                for j in range(self.data.shape[2]):
+                    mean, perc = bootstrap_effect_size(self.data[:, i, j], num=bs_num)
+                    eff_array[i, j, 0] = mean
                     for k in range(len(perc)):
-                        eff_array[1+k, i, j] = perc[k]
+                        eff_array[i, j, 1 + k] = perc[k]
         else:
             NotImplementedError('Only for 3 dim tables implemented')
 
         return eff_array
-
-
-        pass
 
     def test_zero_effect_non_parametric(self, num=1000,
                                         alpha=0.05,
@@ -217,6 +216,11 @@ class PairedNonParametric:
 
         return rejected, p_vals
 
+    def get_eff_size_dist(self, bs_num=100):
+        diff_table = self.get_emp_diff()
+        eff_size = diff_table.compute_eff_size_distribution()
+        return eff_size
+
     def get_zero_eff_parametric(self, correction=None, alpha=0.05):
         """
 
@@ -239,7 +243,7 @@ class PairedNonParametric:
 
 class Reproducibility:
 
-    def __init__(self, table1, table2, ground_true=False):
+    def __init__(self, table1, table2):
         self.table1 = table1
         self.table2 = table2
 
@@ -249,19 +253,18 @@ class Reproducibility:
         return bool_dice(p_vals1.flatten(), p_vals2.flatten())
 
     def compute_p_vals_bs_samples(self, sample_size=30, bs_num=10,
-                               correction='np', agg='wmean', per_num=1000,
-                               save_path='./repr_results'):
+                                  correction='np', agg='wmean', per_num=1000,
+                                  save_path='./repr_results'):
         subj_lists = self.table1.get_subj_subsamples(sample_size,
                                                      type_subs='bs', num=bs_num, replace=False)
 
-
-        p_vals_arr = np.zeros((len(subj_lists),* self.table1.data[0].shape))
+        p_vals_arr = np.zeros((len(subj_lists), *self.table1.data[0].shape))
         for i, subjs in enumerate(subj_lists):
             stable1 = self.table1.get_subtable_by_subjs(subjs)
             stable2 = self.table2.get_subtable_by_subjs(subjs)
             rejected, p_vals = self._compute_p_vals(stable1, stable2, correction, per_num, alpha=0.05, agg=agg)
             p_vals_arr[i] = p_vals
-        if correction =='np':
+        if correction == 'np':
             method = f'{correction}_{agg}_{per_num}'
         else:
             method = correction
@@ -275,11 +278,8 @@ class Reproducibility:
 
         return res
 
-
-
-
     def bootstrap_reproducibility(self, sample_size=30, num=10,
-                                  correction='np',
+                                  correction='np', agg='wmean',
                                   per_num=1000, alpha=0.05):
         """
         Compute dice coefficient each to each for subsample with fixed size.
@@ -302,7 +302,8 @@ class Reproducibility:
             for subjs in subj_list:
                 stable1 = self.table1.get_subtable_by_subjs(subjs)
                 stable2 = self.table2.get_subtable_by_subjs(subjs)
-                rejected, _ = self._compute_p_vals(stable1, stable2, correction, per_num, alpha)
+                rejected, _ = self._compute_p_vals(stable1, stable2, correction, agg=agg,
+                                                   per_num=per_num, alpha=alpha)
                 rejected_arr.append(rejected.flatten())
             dice_list.extend(pairwise_bool_dice(np.array(rejected_arr).T))
         return dice_list
@@ -366,6 +367,25 @@ class Reproducibility:
         else:
             rejected, p_vals = pt.get_zero_eff_parametric(correction=correction, alpha=alpha)
         return rejected, p_vals
+
+    def _compute_p_vals_eff_size(self,
+                        table1,
+                        table2,
+                        bs_num=100,
+                        correction='np',
+                        per_num=1000, alpha=0.05, agg='wmean'):
+
+        assert correction in ['uncorr', 'bonferroni', 'sidak', 'holm-sidak', 'holm', 'fdr_bh', 'fdr_by',
+                              'fdr_tsbh', 'np'], f'{correction} not available'
+
+        pt = PairedNonParametric(table1, table2)
+        if correction == 'np':
+            rejected, p_vals = pt.get_zero_eff_perm_non_parametric(num=per_num, alpha=alpha, agg=agg)
+        else:
+            rejected, p_vals = pt.get_zero_eff_parametric(correction=correction, alpha=alpha)
+        eff_size = pt.get_eff_size_dist(bs_num=bs_num)
+        return p_vals, eff_size
+
 
     def compare_btsp_to_full(self, sample_size=30, full_correction='fdr_by',
                              bs_num=5, perm_num=5000, agg='max', save_path='./repr_results'):

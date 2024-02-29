@@ -16,7 +16,7 @@ class TestPairsElectrodes(TestCase):
         res = list(combinations(els, 2))
         pairs = PairsElectrodes(Electrodes)
         self.assertTrue(True)
-        #self.fail()
+        # self.fail()
 
     def test_create_pairs_dict(self):
         pairs = PairsElectrodes(Electrodes)
@@ -33,7 +33,7 @@ class TestEEGdata(TestCase):
         self.pairs = PairsElectrodes(Electrodes)
 
     def test_set_values_to_electrodes(self):
-        eeg = EEGdata(Electrodes,  Bands, self.pairs.electrode_pairs)
+        eeg = EEGdata(Electrodes, Bands, self.pairs.electrode_pairs)
         eeg.set_values_to_electrodes('repr_freq', self.data)
         self.assertTrue(True)
 
@@ -53,4 +53,15 @@ class TestEEGdata1020(TestCase):
         eeg = EEGdata1020()
 
         self.assertTrue(True)
+
+
+class TestBands(TestCase):
+    def test_get_name_by_id(self):
+        b = Bands
+        name = b.get_name_by_id(1)
+        self.assertTrue(name, 'delta')
+    def test_values(self):
+        b = Bands
+        values = b.get_values()
+        self.assertTrue(values, [1,2,3,4,5,6,7])
 

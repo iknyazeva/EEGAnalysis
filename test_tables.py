@@ -2,6 +2,7 @@ from unittest import TestCase
 from tables import EEGSynchronizationTable, PairedNonParametric, DataTable, Reproducibility
 from eeg_data_class import PairsElectrodes, Bands, Electrodes
 import numpy as np
+import pickle
 
 
 class TestDataTable(TestCase):
@@ -36,8 +37,8 @@ class TestDataTable(TestCase):
         eff_sizes = self.table1.compute_stat(type_stat='eff_size')
         self.assertEqual(eff_sizes.shape, self.table1.data[0].shape)
 
-    def test_compute_zero_eff_size_distribution(self):
-        eff_array = self.table1.compute_zero_eff_size_distribution(bs_num=1000)
+    def test_compute_eff_size_distribution(self):
+        eff_array = self.table1.compute_eff_size_distribution(bs_num=100)
         self.assertTrue(True)
 
 
@@ -137,6 +138,22 @@ class TestReproducibility(TestCase):
                         per_num=100, alpha=0.05, agg='wmean')
         self.assertTrue(True)
 
+    def test__compute_p_vals_eff_size(self):
+
+        rpr = Reproducibility(self.stable_fz, self.stable_fo)
+        sample_size = 30
+        subj_lists = self.stable_fz.get_subj_subsamples(sample_size, type_subs='bs', num=1)
+        stable1 = rpr.table1.get_subtable_by_subjs(subj_lists[0])
+        stable2 = rpr.table2.get_subtable_by_subjs( subj_lists[0])
+        p_vals, eff_size = rpr._compute_p_vals_eff_size(stable1,
+                                                        stable2,
+                                                        correction='uncorr',
+                                                        bs_num=10)
+        self.assertTrue(True)
+
+
+
+
     def test_compute_p_vals_bs_samples(self):
         rpr = Reproducibility(self.stable_fz, self.stable_fo)
         for sample_size in [20, 30, 40, 50, 60, 70, 80]:
@@ -177,9 +194,25 @@ class TestReproducibility(TestCase):
     def test_bootstrap_reproducibility(self):
 
         rpr = Reproducibility(self.stable_fz, self.stable_fo)
+        save_path = './repr_results'
+        per_num = 5000
+        for sample_size in [20, 25, 30, 40, 50, 60]:
+            print(sample_size)
+            dice_res = dict()
+            for correction in ['uncorr', 'bonferroni', 'sidak', 'holm', 'fdr_bh', 'fdr_by', 'np']:
 
-        dice_list = rpr.bootstrap_reproducibility(sample_size=30, num=10, per_num=1000, correction='np', alpha=0.05)
-        dice_stat = np.mean(dice_list), np.std(dice_list)
+                dice_list = rpr.bootstrap_reproducibility(sample_size=sample_size, num=10, per_num=per_num, correction=correction,
+                                                  agg='max', alpha=0.05)
+
+                dice_res[correction]=dice_list
+            dice_list = rpr.bootstrap_reproducibility(sample_size=sample_size, num=10, per_num=per_num, correction='np',
+                                                  agg='wmean', alpha=0.05)
+            dice_res['np_wmean'] = dice_list
+            with open(f'{save_path}/dice_{sample_size}_in_group.pkl',
+                  'wb') as f:
+                pickle.dump(dice_res, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+
         self.fail()
 
 

@@ -13,6 +13,15 @@ class Bands(Enum):
     beta1 = 5
     beta2 = 6
     gamma = 7
+    @staticmethod
+    def get_name_by_id(id):
+        #bdict = dict((el.value, el.name) for el in Bands)
+        return Bands(id).name
+
+    @staticmethod
+    def get_values():
+        values = [el.value for el in Bands]
+        return values
 
 
 class Electrodes(Enum):

@@ -56,7 +56,7 @@ class Test(TestCase):
                                  color_col='mean_eff_size',
                                  width_col='width',
                                  sign='separate',
-                                 color_label = 't_stat')
+                                 color_label='t_stat')
         plt.show()
 
         self.assertTrue(True)
